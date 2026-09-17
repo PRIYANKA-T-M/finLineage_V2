@@ -1,0 +1,8 @@
+{
+  "name": "FinLineage",
+  "description": "Marine species digital studbook, pedigree lineage management, and conservation breeding platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
