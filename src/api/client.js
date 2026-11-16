@@ -88,6 +88,11 @@ export const auditAPI = {
   getAll: () => api.get('/audit-logs')
 };
 
+export const databaseAPI = {
+  getOverview: () => api.get('/database/overview'),
+  exportUrl: (format) => `/api/database/export?format=${encodeURIComponent(format)}`
+};
+
 export const testAPI = {
   runTests: () => api.get('/tests/run')
 };

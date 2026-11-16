@@ -411,12 +411,22 @@ CREATE CONSTRAINT specimen_id_unique FOR (s:Specimen) REQUIRE s.id IS UNIQUE;
       {/* Tab 5: Dataset */}
       {activeTab === 'dataset' && (
         <div className="glass-card">
-          <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '0.8rem' }}>
-            Deterministic Synthetic 30-Specimen Dataset (4 Generations)
-          </h3>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', lineHeight: '1.6', marginBottom: '1.25rem' }}>
-            This deterministic baseline dataset has been seeded to enable multi-generational pedigree validation and will serve as the exact benchmark for Wright's Inbreeding Coefficient (F) and Mean Kinship (MK) in Milestone 2:
-          </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
+            <div>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '0.4rem' }}>
+                Deterministic Synthetic 30-Specimen Dataset (4 Generations)
+              </h3>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', lineHeight: '1.6', margin: 0 }}>
+                This deterministic baseline dataset has been seeded to enable multi-generational pedigree validation and serves as the exact benchmark for Wright's Inbreeding Coefficient (F) and Mean Kinship (MK):
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <a href="/api/database/export?format=json" download="finlineage-dataset.json" className="btn btn-primary" style={{ fontSize: '0.78rem' }}>Download JSON</a>
+              <a href="/api/database/export?format=csv" download="finlineage-specimens-dataset.csv" className="btn btn-secondary" style={{ fontSize: '0.78rem' }}>Download CSV</a>
+              <a href="/api/database/export?format=sql" download="finlineage-seed.sql" className="btn btn-secondary" style={{ fontSize: '0.78rem' }}>PostgreSQL (.sql)</a>
+              <a href="/api/database/export?format=cypher" download="finlineage-neo4j.cypher" className="btn btn-secondary" style={{ fontSize: '0.78rem' }}>Neo4j (.cypher)</a>
+            </div>
+          </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.2rem' }}>
             <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>

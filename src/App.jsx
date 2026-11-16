@@ -8,6 +8,7 @@ import PedigreeViewerPage from './pages/PedigreeViewerPage';
 import TaxonomyPage from './pages/TaxonomyPage';
 import BreedingSimulatorPage from './pages/BreedingSimulatorPage';
 import PopulationOptimizationPage from './pages/PopulationOptimizationPage';
+import DatabaseExplorerPage from './pages/DatabaseExplorerPage';
 import TestsDocsPage from './pages/TestsDocsPage';
 import { dashboardAPI } from './api/client';
 
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="/breeding" element={<BreedingSimulatorPage />} />
           <Route path="/population" element={<PopulationOptimizationPage />} />
           <Route path="/taxonomy" element={<TaxonomyPage />} />
+          <Route path="/database" element={<DatabaseExplorerPage />} />
           <Route path="/tests" element={<TestsDocsPage />} />
         </Routes>
       </main>

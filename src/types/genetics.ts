@@ -123,6 +123,7 @@ export interface FounderContribution {
   founderName: string;
   institution: string;
   sex: string;
+  descendantsCount: number;
   contributionPercent: number;     // e.g. 32.5
   targetPercent: number;           // e.g. 25.0
   deviation: number;               // positive = over-represented
@@ -134,6 +135,8 @@ export interface IndividualMeanKinship {
   localIdentifier?: string | null;
   sex: string;
   institution: string;
+  institutionName?: string;
+  isFounder?: boolean;
   meanKinship: number;             // MK_i
   populationRank: number;
   percentile: number;
@@ -153,6 +156,9 @@ export interface PopulationSummaryMetrics {
   wildFounders: number;
   captiveBorn: number;
   averageKinship: number;
+  meanPopulationKinship: number;
+  geneDiversity: number;
+  effectivePopulationSize: number;
   meanPopulationF: number;
   pedigreeCompleteness: number;
   lowestMK: { specimenId: string; value: number };
@@ -179,7 +185,9 @@ export interface BreedingPlanPair {
   pairwiseKinship: number;
   meanKinship: number;
   founderBalanceScore: number;     // 0.0 - 1.0 (higher = better balance)
-  overallScore: number;            // lower is better
+  overallScore: number;            // lower penalty is better
+  optimizationScore: number;       // 0 - 100 fitness score (higher is better)
+  relationship: PedigreeRelationshipType;
   riskLevel: BreedingRiskLevel;
   recommendationLevel: 'OPTIMAL' | 'GOOD' | 'ACCEPTABLE' | 'TRADE_OFF' | 'NOT_RECOMMENDED';
   isCrossInstitution: boolean;

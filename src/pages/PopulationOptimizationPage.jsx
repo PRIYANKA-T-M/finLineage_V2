@@ -39,12 +39,14 @@ export default function PopulationOptimizationPage() {
   const [mkWeight, setMkWeight] = useState(30);
   const [founderWeight, setFounderWeight] = useState(30);
   const [maxPairs, setMaxPairs] = useState(4);
+  const [allowCrossInstitution, setAllowCrossInstitution] = useState(true);
   const [optimizing, setOptimizing] = useState(false);
   const [generatedPlan, setGeneratedPlan] = useState(null);
 
   // Scenario Simulator State
   const [simulating, setSimulating] = useState(false);
   const [scenarioComparison, setScenarioComparison] = useState(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     loadSpecies();
@@ -58,14 +60,20 @@ export default function PopulationOptimizationPage() {
         const firstId = res.data[0].speciesId;
         setSelectedSpeciesId(firstId);
         loadPopulationData(firstId);
+      } else {
+        setLoading(false);
       }
     } catch (err) {
       console.error('Failed to load species', err);
+      setError('Failed to load species list.');
+      setLoading(false);
     }
   };
 
   const loadPopulationData = async (spId) => {
     setLoading(true);
+    setError('');
+    setScenarioComparison(null);
     try {
       const [sumRes, mkRes, fndRes, alrRes, trfRes] = await Promise.all([
         populationAPI.getSummary(spId),
@@ -82,15 +90,16 @@ export default function PopulationOptimizationPage() {
       setTransfers(trfRes.data?.transfers || []);
 
       // Auto-generate initial plan
-      runOptimization(spId, { inbreeding: 0.4, meanKinship: 0.3, founderBalance: 0.3 }, 4);
+      await runOptimization(spId, { inbreeding: 0.4, meanKinship: 0.3, founderBalance: 0.3 }, maxPairs, allowCrossInstitution);
     } catch (err) {
       console.error('Failed to load population metrics', err);
+      setError(err.response?.data?.message || 'Failed to load population viability metrics.');
     } finally {
       setLoading(false);
     }
   };
 
-  const runOptimization = async (spId, weights, pairLimit) => {
+  const runOptimization = async (spId, weights, pairLimit, crossInst = true) => {
     setOptimizing(true);
     try {
       const res = await geneticBreedingAPI.optimizePlan({
@@ -98,11 +107,12 @@ export default function PopulationOptimizationPage() {
         planningHorizon: 1,
         weights,
         maxPairs: pairLimit,
-        allowCrossInstitution: true
+        allowCrossInstitution: crossInst
       });
       setGeneratedPlan(res.data);
     } catch (err) {
       console.error('Failed to generate breeding plan', err);
+      setError(err.response?.data?.message || 'Failed to compute breeding plan.');
     } finally {
       setOptimizing(false);
     }
@@ -111,12 +121,14 @@ export default function PopulationOptimizationPage() {
   const handleGeneratePlan = (e) => {
     e.preventDefault();
     const total = inbreedingWeight + mkWeight + founderWeight;
-    const normWeights = {
-      inbreeding: inbreedingWeight / total,
-      meanKinship: mkWeight / total,
-      founderBalance: founderWeight / total
-    };
-    runOptimization(selectedSpeciesId, normWeights, maxPairs);
+    const normWeights = total > 0
+      ? {
+          inbreeding: inbreedingWeight / total,
+          meanKinship: mkWeight / total,
+          founderBalance: founderWeight / total
+        }
+      : { inbreeding: 0.4, meanKinship: 0.3, founderBalance: 0.3 };
+    runOptimization(selectedSpeciesId, normWeights, maxPairs, allowCrossInstitution);
   };
 
   const handleRunScenarioComparison = async () => {
@@ -126,6 +138,7 @@ export default function PopulationOptimizationPage() {
       setScenarioComparison(res.data?.comparison || []);
     } catch (err) {
       console.error('Failed to run scenario comparison', err);
+      setError(err.response?.data?.message || 'Failed to run multi-generation scenario comparison.');
     } finally {
       setSimulating(false);
     }
@@ -133,15 +146,16 @@ export default function PopulationOptimizationPage() {
 
   const getPriorityBadge = (priority) => {
     switch (priority) {
+      case 'HIGH_VALUE':
       case 'CRITICAL_BREEDER':
-        return { bg: '#fef2f2', border: '#fca5a5', text: '#991b1b', label: 'Critical Conservation Priority' };
-      case 'HIGH_PRIORITY':
         return { bg: '#eff6ff', border: '#bfdbfe', text: '#1e40af', label: 'High Genetic Value' };
-      case 'SECURE':
-        return { bg: '#f0fdf4', border: '#bbf7d0', text: '#166534', label: 'Adequately Represented' };
+      case 'MODERATE_VALUE':
+      case 'HIGH_PRIORITY':
+        return { bg: '#f0fdf4', border: '#bbf7d0', text: '#166534', label: 'Moderate Value' };
+      case 'COMMON':
       case 'OVER_REPRESENTED':
       default:
-        return { bg: '#fefce8', border: '#fde047', text: '#854d0e', label: 'Lineage Over-Represented' };
+        return { bg: '#fefce8', border: '#fde047', text: '#854d0e', label: 'Common Lineage' };
     }
   };
 
@@ -205,6 +219,12 @@ export default function PopulationOptimizationPage() {
         </div>
       </div>
 
+      {error && (
+        <div className="alert alert-error" style={{ marginBottom: '1.5rem' }}>
+          {error}
+        </div>
+      )}
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: '4rem' }}>
           <Compass size={36} color="var(--primary)" style={{ animation: 'spin 1.5s linear infinite', margin: '0 auto 1rem' }} />
@@ -225,27 +245,27 @@ export default function PopulationOptimizationPage() {
             <div className="stat-card" style={{ padding: '1.25rem', borderRadius: '12px' }}>
               <span className="stat-label">Mean Population F</span>
               <div className="stat-value" style={{ color: summary.meanPopulationF <= 0.05 ? '#059669' : '#ca8a04', fontFamily: 'var(--font-mono)' }}>
-                {summary.meanPopulationF.toFixed(4)}
+                {(summary.meanPopulationF ?? 0).toFixed(4)}
               </div>
               <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
-                {(summary.meanPopulationF * 100).toFixed(2)}% average inbreeding
+                {((summary.meanPopulationF ?? 0) * 100).toFixed(2)}% average inbreeding
               </span>
             </div>
 
             <div className="stat-card" style={{ padding: '1.25rem', borderRadius: '12px' }}>
               <span className="stat-label">Gene Diversity (GD)</span>
               <div className="stat-value" style={{ color: '#0284c7', fontFamily: 'var(--font-mono)' }}>
-                {(summary.geneDiversity * 100).toFixed(1)}%
+                {((summary.geneDiversity ?? (1 - (summary.averageKinship ?? 0))) * 100).toFixed(1)}%
               </div>
               <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
-                GD = 1 - Mean Kinship ({summary.meanPopulationKinship.toFixed(4)})
+                GD = 1 - Mean Kinship ({(summary.meanPopulationKinship ?? summary.averageKinship ?? 0).toFixed(4)})
               </span>
             </div>
 
             <div className="stat-card" style={{ padding: '1.25rem', borderRadius: '12px' }}>
               <span className="stat-label">Effective Population (Ne)</span>
               <div className="stat-value" style={{ fontFamily: 'var(--font-mono)' }}>
-                {summary.effectivePopulationSize.toFixed(1)}
+                {(summary.effectivePopulationSize ?? 0).toFixed(1)}
               </div>
               <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
                 Ne = (4 * Nm * Nf) / (Nm + Nf)
@@ -269,14 +289,24 @@ export default function PopulationOptimizationPage() {
                 </strong>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '0.6rem' }}>
-                {alerts.map((al, idx) => (
-                  <div key={idx} style={{ background: '#ffffff', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #fef08a', fontSize: '0.8rem' }}>
-                    <span style={{ fontWeight: 800, color: al.severity === 'HIGH' ? '#dc2626' : '#d97706', display: 'block', fontSize: '0.74rem' }}>
-                      [{al.severity}] {al.type.replace(/_/g, ' ')}
-                    </span>
-                    <p style={{ color: 'var(--text-main)', marginTop: '0.2rem' }}>{al.message}</p>
-                  </div>
-                ))}
+                {alerts.map((al, idx) => {
+                  const level = al.level || al.severity || 'INFO';
+                  const isCritical = level === 'CRITICAL' || level === 'HIGH';
+                  const isWarning = level === 'WARNING';
+                  return (
+                    <div key={al.alertId || idx} style={{ background: '#ffffff', padding: '0.75rem 0.9rem', borderRadius: '8px', border: `1px solid ${isCritical ? '#fca5a5' : isWarning ? '#fde68a' : '#bfdbfe'}`, fontSize: '0.8rem' }}>
+                      <span style={{ fontWeight: 800, color: isCritical ? '#dc2626' : isWarning ? '#d97706' : '#0284c7', display: 'block', fontSize: '0.74rem' }}>
+                        [{level}] {al.title || (al.type ? al.type.replace(/_/g, ' ') : 'CONSERVATION ALERT')}
+                      </span>
+                      <p style={{ color: 'var(--text-main)', marginTop: '0.25rem', lineHeight: '1.45' }}>{al.description || al.message}</p>
+                      {al.actionRecommendation && (
+                        <p style={{ color: 'var(--text-muted)', marginTop: '0.25rem', fontSize: '0.74rem', fontWeight: 600 }}>
+                          Action: {al.actionRecommendation}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -341,7 +371,7 @@ export default function PopulationOptimizationPage() {
                   />
                 </div>
 
-                <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
                   <label className="form-label">Max Recommended Pairs</label>
                   <select
                     className="form-control"
@@ -354,6 +384,15 @@ export default function PopulationOptimizationPage() {
                     <option value={6}>6 Pairs</option>
                   </select>
                 </div>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: 'var(--text-main)', fontWeight: 600, marginBottom: '1.25rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={allowCrossInstitution}
+                    onChange={(e) => setAllowCrossInstitution(e.target.checked)}
+                  />
+                  Allow Cross-Institution Transfers
+                </label>
 
                 <button
                   type="submit"
@@ -390,89 +429,105 @@ export default function PopulationOptimizationPage() {
                       <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '0.35rem 0.75rem', borderRadius: '8px', textAlign: 'center' }}>
                         <span style={{ fontSize: '0.65rem', color: '#166534', fontWeight: 700, display: 'block' }}>Projected Mean F</span>
                         <strong style={{ color: '#15803d', fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
-                          {generatedPlan.projectedImpact.projectedMeanF.toFixed(4)}
+                          {(generatedPlan.projectedImpact?.projectedMeanF ?? 0).toFixed(4)}
                         </strong>
                       </div>
                       <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '0.35rem 0.75rem', borderRadius: '8px', textAlign: 'center' }}>
                         <span style={{ fontSize: '0.65rem', color: '#1e40af', fontWeight: 700, display: 'block' }}>F Reduction</span>
                         <strong style={{ color: '#2563eb', fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
-                          +{generatedPlan.projectedImpact.fReductionPercent.toFixed(1)}%
+                          +{(generatedPlan.projectedImpact?.fReductionPercent ?? 0).toFixed(1)}%
                         </strong>
                       </div>
                     </div>
                   </div>
 
                   {/* Pairing Cards Grid */}
+                  {generatedPlan.recommendedPairs.length === 0 ? (
+                    <div style={{ padding: '1.5rem', background: '#f8fafc', borderRadius: '8px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.86rem' }}>
+                      No feasible pairs satisfied all hard biological constraints under the current filter. Try enabling cross-institution transfers.
+                    </div>
+                  ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
-                    {generatedPlan.recommendedPairs.map((pair, idx) => (
-                      <div
-                        key={idx}
-                        style={{
-                          background: '#ffffff',
-                          border: '1px solid var(--border-color)',
-                          borderRadius: '10px',
-                          padding: '1rem',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
-                          <span style={{
-                            background: '#f1f5f9',
-                            fontSize: '0.72rem',
-                            fontWeight: 800,
-                            padding: '0.15rem 0.5rem',
-                            borderRadius: '4px',
-                            color: 'var(--text-main)'
-                          }}>
-                            Pair #{idx + 1}
-                          </span>
-                          <span style={{
-                            fontSize: '0.72rem',
-                            fontWeight: 800,
-                            color: '#059669',
-                            background: '#ecfdf5',
-                            padding: '0.15rem 0.45rem',
-                            borderRadius: '4px'
-                          }}>
-                            Fit: {pair.optimizationScore.toFixed(1)}/100
-                          </span>
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                          <div style={{ textAlign: 'left' }}>
-                            <strong style={{ color: 'var(--male-color)', fontSize: '0.95rem' }}>{pair.sireId}</strong>
-                            <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-dim)' }}>
-                              {pair.sireInstitution}
+                    {generatedPlan.recommendedPairs.map((pair, idx) => {
+                      const fitScore = pair.optimizationScore ?? Math.max(0, Math.min(100, (100 - (pair.overallScore ?? 0) * 180)));
+                      const relLabel = (pair.relationship || pair.recommendationLevel || 'COMPATIBLE').replace(/_/g, ' ');
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            background: '#ffffff',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '10px',
+                            padding: '1rem',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                            <span style={{
+                              background: '#f1f5f9',
+                              fontSize: '0.72rem',
+                              fontWeight: 800,
+                              padding: '0.15rem 0.5rem',
+                              borderRadius: '4px',
+                              color: 'var(--text-main)'
+                            }}>
+                              Pair #{idx + 1}
+                            </span>
+                            <span style={{
+                              fontSize: '0.72rem',
+                              fontWeight: 800,
+                              color: '#059669',
+                              background: '#ecfdf5',
+                              padding: '0.15rem 0.45rem',
+                              borderRadius: '4px'
+                            }}>
+                              Fit: {fitScore.toFixed(1)}/100
                             </span>
                           </div>
-                          <span style={{ color: 'var(--text-dim)', fontWeight: 700 }}>×</span>
-                          <div style={{ textAlign: 'right' }}>
-                            <strong style={{ color: 'var(--female-color)', fontSize: '0.95rem' }}>{pair.damId}</strong>
-                            <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-dim)' }}>
-                              {pair.damInstitution}
-                            </span>
-                          </div>
-                        </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem', fontSize: '0.75rem', background: '#f8fafc', padding: '0.5rem', borderRadius: '6px' }}>
-                          <div>
-                            <span style={{ color: 'var(--text-dim)', display: 'block', fontSize: '0.68rem' }}>Offspring F</span>
-                            <strong style={{ fontFamily: 'var(--font-mono)' }}>{pair.predictedOffspringF.toFixed(4)}</strong>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                            <div style={{ textAlign: 'left' }}>
+                              <strong style={{ color: 'var(--male-color)', fontSize: '0.95rem' }}>{pair.sireId}</strong>
+                              <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-dim)' }}>
+                                {pair.sireInstitution}
+                              </span>
+                            </div>
+                            <span style={{ color: 'var(--text-dim)', fontWeight: 700 }}>×</span>
+                            <div style={{ textAlign: 'right' }}>
+                              <strong style={{ color: 'var(--female-color)', fontSize: '0.95rem' }}>{pair.damId}</strong>
+                              <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-dim)' }}>
+                                {pair.damInstitution}
+                              </span>
+                            </div>
                           </div>
-                          <div>
-                            <span style={{ color: 'var(--text-dim)', display: 'block', fontSize: '0.68rem' }}>Topology</span>
-                            <strong>{pair.relationship.replace(/_/g, ' ')}</strong>
-                          </div>
-                        </div>
 
-                        {pair.isCrossInstitution && (
-                          <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.7rem', color: '#b45309', fontWeight: 600 }}>
-                            <Building2 size={12} /> Requires Inter-Institutional Transfer
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem', fontSize: '0.75rem', background: '#f8fafc', padding: '0.5rem', borderRadius: '6px' }}>
+                            <div>
+                              <span style={{ color: 'var(--text-dim)', display: 'block', fontSize: '0.68rem' }}>Offspring F</span>
+                              <strong style={{ fontFamily: 'var(--font-mono)' }}>{(pair.predictedOffspringF ?? 0).toFixed(4)}</strong>
+                            </div>
+                            <div>
+                              <span style={{ color: 'var(--text-dim)', display: 'block', fontSize: '0.68rem' }}>Topology</span>
+                              <strong>{relLabel}</strong>
+                            </div>
                           </div>
-                        )}
-                      </div>
-                    ))}
+
+                          {pair.rationale && (
+                            <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.55rem', lineHeight: '1.4' }}>
+                              {pair.rationale}
+                            </p>
+                          )}
+
+                          {pair.isCrossInstitution && (
+                            <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.7rem', color: '#b45309', fontWeight: 600 }}>
+                              <Building2 size={12} /> Requires Inter-Institutional Transfer
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
+                  )}
                 </div>
               ) : (
                 <div className="glass-card" style={{ textAlign: 'center', padding: '3rem' }}>
@@ -511,7 +566,8 @@ export default function PopulationOptimizationPage() {
                 </thead>
                 <tbody>
                   {meanKinshipList.map((ind) => {
-                    const badge = getPriorityBadge(ind.conservationPriority);
+                    const rank = ind.populationRank ?? ind.rank ?? 0;
+                    const badge = getPriorityBadge(ind.geneticValue || ind.conservationPriority);
                     return (
                       <tr key={ind.specimenId}>
                         <td>
@@ -522,12 +578,12 @@ export default function PopulationOptimizationPage() {
                             width: '24px',
                             height: '24px',
                             borderRadius: '50%',
-                            background: ind.rank <= 3 ? '#fef08a' : '#f1f5f9',
-                            color: ind.rank <= 3 ? '#854d0e' : '#475569',
+                            background: rank <= 3 ? '#fef08a' : '#f1f5f9',
+                            color: rank <= 3 ? '#854d0e' : '#475569',
                             fontWeight: 800,
                             fontSize: '0.75rem'
                           }}>
-                            {ind.rank}
+                            {rank}
                           </span>
                         </td>
                         <td>
@@ -545,15 +601,15 @@ export default function PopulationOptimizationPage() {
                             {ind.sex === 'M' ? '♂ Male' : (ind.sex === 'F' ? '♀ Female' : '⚲ Unknown')}
                           </span>
                         </td>
-                        <td>{ind.institutionName}</td>
+                        <td>{ind.institutionName || ind.institution}</td>
                         <td>
                           <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--text-main)' }}>
-                            {ind.meanKinship.toFixed(5)}
+                            {(ind.meanKinship ?? 0).toFixed(5)}
                           </span>
                         </td>
                         <td>
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>
-                            {(ind.percentile * 100).toFixed(0)}th
+                            {Math.round(ind.percentile ?? 0)}th
                           </span>
                         </td>
                         <td>
@@ -570,7 +626,7 @@ export default function PopulationOptimizationPage() {
                           </span>
                         </td>
                         <td>
-                          {ind.isFounder ? (
+                          {(ind.isFounder ?? ind.wildFounder) ? (
                             <span style={{ background: '#fef3c7', color: '#92400e', fontSize: '0.72rem', fontWeight: 700, padding: '0.15rem 0.45rem', borderRadius: '4px' }}>
                               ★ Wild Founder
                             </span>
@@ -604,7 +660,7 @@ export default function PopulationOptimizationPage() {
                     <th>Founder ID</th>
                     <th>Sex</th>
                     <th>Origin Facility</th>
-                    <th>Direct Descendants</th>
+                    <th>Descendants</th>
                     <th>Target %</th>
                     <th>Actual %</th>
                     <th>Deviation</th>
@@ -613,7 +669,8 @@ export default function PopulationOptimizationPage() {
                 </thead>
                 <tbody>
                   {founders.map((f) => {
-                    const dev = f.representationDeviation;
+                    const actualPct = f.contributionPercent ?? f.actualPercent ?? 0;
+                    const dev = f.deviation ?? f.representationDeviation ?? 0;
                     const isOver = f.status === 'OVER_REPRESENTED';
                     const isUnder = f.status === 'UNDER_REPRESENTED';
 
@@ -623,20 +680,20 @@ export default function PopulationOptimizationPage() {
                           <strong style={{ color: f.sex === 'M' ? 'var(--male-color)' : 'var(--female-color)' }}>
                             {f.founderId}
                           </strong>
-                          {f.localIdentifier && (
+                          {(f.founderName || f.localIdentifier) && f.founderName !== f.founderId && (
                             <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginLeft: '0.3rem' }}>
-                              ({f.localIdentifier})
+                              ({f.founderName || f.localIdentifier})
                             </span>
                           )}
                         </td>
                         <td>{f.sex === 'M' ? '♂ Male' : '♀ Female'}</td>
-                        <td>{f.institutionName}</td>
+                        <td>{f.institutionName || f.institution}</td>
                         <td>
-                          <span className="badge badge-secondary">{f.descendantsCount} descendants</span>
+                          <span className="badge badge-secondary">{f.descendantsCount ?? 0} descendants</span>
                         </td>
-                        <td style={{ fontFamily: 'var(--font-mono)' }}>{f.targetPercent.toFixed(1)}%</td>
+                        <td style={{ fontFamily: 'var(--font-mono)' }}>{(f.targetPercent ?? 0).toFixed(1)}%</td>
                         <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 800 }}>
-                          {f.actualPercent.toFixed(1)}%
+                          {actualPct.toFixed(1)}%
                         </td>
                         <td style={{
                           fontFamily: 'var(--font-mono)',
@@ -655,7 +712,7 @@ export default function PopulationOptimizationPage() {
                             fontSize: '0.72rem',
                             fontWeight: 800
                           }}>
-                            {f.status.replace(/_/g, ' ')}
+                            {(f.status || 'BALANCED').replace(/_/g, ' ')}
                           </span>
                         </td>
                       </tr>
@@ -739,15 +796,19 @@ export default function PopulationOptimizationPage() {
                         Simulated Trajectory (Gen 0 → Gen 3):
                       </span>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', fontFamily: 'var(--font-mono)' }}>
-                        {scen.simulatedGenerations.map((g) => (
-                          <div key={g.generationNumber} style={{ textAlign: 'center' }}>
-                            <span style={{ color: 'var(--text-dim)', display: 'block' }}>Gen {g.generationNumber}</span>
-                            <strong>F={g.meanInbreedingF.toFixed(3)}</strong>
-                            <span style={{ fontSize: '0.65rem', color: '#059669', display: 'block' }}>
-                              {g.diversityRetentionPercent.toFixed(0)}% Div
-                            </span>
-                          </div>
-                        ))}
+                        {scen.simulatedGenerations.map((g) => {
+                          const genNum = g.generation ?? g.generationNumber ?? 0;
+                          const genF = g.meanF ?? g.meanInbreedingF ?? 0;
+                          return (
+                            <div key={genNum} style={{ textAlign: 'center' }}>
+                              <span style={{ color: 'var(--text-dim)', display: 'block' }}>Gen {genNum}</span>
+                              <strong>F={genF.toFixed(3)}</strong>
+                              <span style={{ fontSize: '0.65rem', color: '#059669', display: 'block' }}>
+                                {(g.diversityRetentionPercent ?? 100).toFixed(0)}% Div
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>

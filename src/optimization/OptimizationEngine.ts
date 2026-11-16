@@ -5,6 +5,8 @@ import {
   PopulationAlert,
   BreedingPlan,
   BreedingPlanPair,
+  BreedingRiskLevel,
+  PedigreeRelationshipType,
   ScenarioSimulationResult,
   CrossInstitutionTransferOpportunity
 } from '../types/genetics';
@@ -73,6 +75,14 @@ export class PopulationAnalysisService {
     const knownParentsCount = pop.filter(s => allParents.some(p => p.specimenId === s.specimenId) || s.wildFounder).length;
     const completeness = pop.length > 0 ? Math.round((knownParentsCount / pop.length) * 100) : 100;
 
+    // Effective population size: Ne = (4 * Nm * Nf) / (Nm + Nf)
+    const activeMales = activeBreeders.filter(s => s.sex === 'M').length;
+    const activeFemales = activeBreeders.filter(s => s.sex === 'F').length;
+    const effectivePopulationSize = (activeMales + activeFemales) > 0
+      ? Math.round(((4 * activeMales * activeFemales) / (activeMales + activeFemales)) * 100) / 100
+      : 0;
+    const geneDiversity = Math.round((1 - avgKinship) * 10000) / 10000;
+
     return {
       speciesId,
       speciesName: speciesCommonName,
@@ -85,6 +95,9 @@ export class PopulationAnalysisService {
       wildFounders: founders.length,
       captiveBorn: captiveBorn.length,
       averageKinship: avgKinship,
+      meanPopulationKinship: avgKinship,
+      geneDiversity,
+      effectivePopulationSize,
       meanPopulationF: meanF,
       pedigreeCompleteness: completeness,
       lowestMK,
@@ -102,7 +115,8 @@ export class MeanKinshipService {
   static calculatePopulationMeanKinship(
     speciesId: string,
     allSpecimens: SpecimenRecord[],
-    allParents: ParentEdge[]
+    allParents: ParentEdge[],
+    institutionMap: Record<string, string> = {}
   ): IndividualMeanKinship[] {
     const activeBreeders = allSpecimens.filter(
       s => s.speciesId === speciesId && s.activeBreeder && s.status === 'ACTIVE'
@@ -139,6 +153,8 @@ export class MeanKinshipService {
         localIdentifier: r.specimen.localIdentifier,
         sex: r.specimen.sex,
         institution: r.specimen.institutionId,
+        institutionName: institutionMap[r.specimen.institutionId] || r.specimen.institutionId,
+        isFounder: r.specimen.wildFounder,
         meanKinship: r.mk,
         populationRank: rank,
         percentile,
@@ -166,7 +182,11 @@ export class FounderContributionService {
 
     const targetPercent = Math.round((100 / founders.length) * 10) / 10;
     const founderAncestryTotals: Record<string, number> = {};
-    founders.forEach(f => { founderAncestryTotals[f.specimenId] = 0; });
+    const founderDescendantsCount: Record<string, number> = {};
+    founders.forEach(f => {
+      founderAncestryTotals[f.specimenId] = 0;
+      founderDescendantsCount[f.specimenId] = 0;
+    });
 
     // For each specimen, calculate contribution from each founder through pedigree paths
     for (const specimen of pop) {
@@ -179,6 +199,9 @@ export class FounderContributionService {
 
         for (const founder of founders) {
           const paths = ancestralPaths.get(founder.specimenId) || [];
+          if (paths.length > 0) {
+            founderDescendantsCount[founder.specimenId] = (founderDescendantsCount[founder.specimenId] || 0) + 1;
+          }
           let fContrib = 0;
           for (const p of paths) {
             const genDist = p.length - 1;
@@ -212,6 +235,7 @@ export class FounderContributionService {
         founderName: f.localIdentifier || f.specimenId,
         institution: institutionMap[f.institutionId] || f.institutionId,
         sex: f.sex,
+        descendantsCount: founderDescendantsCount[f.specimenId] || 0,
         contributionPercent,
         targetPercent,
         deviation,
@@ -318,6 +342,8 @@ export class BreedingPlanOptimizer {
       avgMK: number;
       founderScore: number;
       overallScore: number;
+      optimizationScore: number;
+      relationship: PedigreeRelationshipType;
       isCrossInstitution: boolean;
       rationale: string;
       risk: BreedingRiskLevel;
@@ -333,6 +359,7 @@ export class BreedingPlanOptimizer {
         // Hard constraint checks
         if (sire.specimenId === dam.specimenId) continue;
         if (sire.speciesId !== dam.speciesId) continue;
+        if (options.allowCrossInstitution === false && sire.institutionId !== dam.institutionId) continue;
 
         const { commonAncestors, paths } = CommonAncestorAnalyzer.findCommonAncestors(sire.specimenId, dam.specimenId, allParents, allSpecimens);
         const f = WrightInbreedingCalculator.calculateF(paths);
@@ -341,6 +368,7 @@ export class BreedingPlanOptimizer {
         if (f > 0.25) continue;
 
         const kinship = KinshipCalculator.calculateKinship(sire.specimenId, dam.specimenId, allParents, allSpecimens);
+        const relationship = RelationshipClassifier.classify(sire.specimenId, dam.specimenId, commonAncestors, allParents);
         const mkSire = mkMap.get(sire.specimenId) || 0.08;
         const mkDam = mkMap.get(dam.specimenId) || 0.08;
         const avgMK = (mkSire + mkDam) / 2;
@@ -359,13 +387,15 @@ export class BreedingPlanOptimizer {
         const founderScore = carriesUnderrepFounder ? 0.95 : 0.60;
         const isCrossInstitution = sire.institutionId !== dam.institutionId;
 
-        // Weighted optimization score (lower is better)
-        // Score = w1 * F + w2 * MK + w3 * (1 - founderScore) + (crossInstitutionPenalty if not allowed)
+        // Weighted optimization penalty score (lower is better)
         const overallScore = Math.round((
           (wF * f * 2.0) +
           (wMK * avgMK) +
           (wFounder * (1.0 - founderScore) * 0.15)
         ) * 10000) / 10000;
+
+        // Convert penalty to 0-100 fitness score (higher is better)
+        const optimizationScore = Math.max(0, Math.min(100, Math.round((100 - overallScore * 180) * 10) / 10));
 
         let risk: BreedingRiskLevel = 'LOW';
         let recLevel: BreedingPlanPair['recommendationLevel'] = 'OPTIMAL';
@@ -396,6 +426,8 @@ export class BreedingPlanOptimizer {
           avgMK,
           founderScore,
           overallScore,
+          optimizationScore,
+          relationship,
           isCrossInstitution,
           rationale,
           risk,
@@ -431,6 +463,8 @@ export class BreedingPlanOptimizer {
         meanKinship: cp.avgMK,
         founderBalanceScore: cp.founderScore,
         overallScore: cp.overallScore,
+        optimizationScore: cp.optimizationScore,
+        relationship: cp.relationship,
         riskLevel: cp.risk,
         recommendationLevel: cp.recommendation,
         isCrossInstitution: cp.isCrossInstitution,
@@ -450,10 +484,22 @@ export class BreedingPlanOptimizer {
 
     const fReduction = currentPopMetrics.meanPopulationF > 0
       ? Math.round(((currentPopMetrics.meanPopulationF - avgProjectedF) / currentPopMetrics.meanPopulationF) * 100)
-      : 25;
+      : (avgProjectedF === 0 ? 0 : 25);
     const mkReduction = currentPopMetrics.averageKinship > 0
       ? Math.round(((currentPopMetrics.averageKinship - avgProjectedMK) / currentPopMetrics.averageKinship) * 100)
-      : 15;
+      : 0;
+
+    // Mean absolute deviation of founder representation
+    const founderImbalanceBefore = founderContribs.length > 0
+      ? Math.round((founderContribs.reduce((sum, fc) => sum + Math.abs(fc.deviation), 0) / founderContribs.length / 100) * 1000) / 1000
+      : 0.12;
+    const avgFounderBalance = selectedPairs.length > 0
+      ? selectedPairs.reduce((sum, p) => sum + p.founderBalanceScore, 0) / selectedPairs.length
+      : 0.6;
+    const founderImbalanceAfter = Math.max(0.01, Math.round((founderImbalanceBefore * (1 - avgFounderBalance * 0.55)) * 1000) / 1000);
+    const imbalanceImprovementPercent = founderImbalanceBefore > 0
+      ? Math.round(((founderImbalanceBefore - founderImbalanceAfter) / founderImbalanceBefore) * 1000) / 10
+      : 0;
 
     return {
       planId: `plan-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -484,9 +530,9 @@ export class BreedingPlanOptimizer {
         currentMeanKinship: currentPopMetrics.averageKinship,
         projectedMeanKinship: avgProjectedMK,
         kinshipReductionPercent: Math.max(0, mkReduction),
-        founderImbalanceBefore: 0.18,
-        founderImbalanceAfter: 0.09,
-        imbalanceImprovementPercent: 50.0
+        founderImbalanceBefore,
+        founderImbalanceAfter,
+        imbalanceImprovementPercent
       },
       createdAt: new Date().toISOString(),
       createdBy: 'Conservation Biologist',
@@ -509,6 +555,8 @@ export class ScenarioSimulationService {
     let currentF = plan.projectedImpact.currentMeanF;
     let currentMK = plan.projectedImpact.currentMeanKinship;
     let currentImbalance = plan.projectedImpact.founderImbalanceBefore;
+    const targetPairF = plan.projectedImpact.projectedMeanF;
+    const targetPairMK = plan.projectedImpact.projectedMeanKinship;
 
     results.push({
       generation: 0,
@@ -521,11 +569,12 @@ export class ScenarioSimulationService {
     });
 
     for (let gen = 1; gen <= generationsCount; gen++) {
-      // Projected progression under recommended conservation strategy
-      currentF = Math.max(0.01, Math.round((currentF * 0.78) * 10000) / 10000);
-      currentMK = Math.max(0.04, Math.round((currentMK * 0.88) * 10000) / 10000);
-      currentImbalance = Math.max(0.02, Math.round((currentImbalance * 0.65) * 1000) / 1000);
-      const retention = Math.round((100 - (gen * 1.8)) * 10) / 10;
+      // Blend current population metrics toward the selected plan's offspring metrics
+      currentF = Math.round(((currentF * 0.65) + (targetPairF * 0.35)) * 10000) / 10000;
+      currentMK = Math.round(((currentMK * 0.72) + (targetPairMK * 0.25)) * 10000) / 10000;
+      const founderBoost = 0.65 + (1 - plan.weights.founderBalance) * 0.25;
+      currentImbalance = Math.max(0.015, Math.round((currentImbalance * founderBoost) * 1000) / 1000);
+      const retention = Math.max(70, Math.round((100 - (gen * (1.2 + currentMK * 6))) * 10) / 10);
 
       results.push({
         generation: gen,
@@ -538,13 +587,18 @@ export class ScenarioSimulationService {
       });
     }
 
+    const finalGen = results[results.length - 1];
+    const startF = results[0].meanF;
+    const fDropPct = startF > 0 ? Math.max(0, Math.round(((startF - finalGen.meanF) / startF) * 100)) : 0;
+    const computedScore = Math.min(99, Math.max(60, Math.round((finalGen.diversityRetentionPercent * 0.75 + (1 - finalGen.meanF * 4) * 20 + (1 - finalGen.founderImbalance) * 10) * 10) / 10));
+
     return {
       scenarioId: `scen-${Date.now()}`,
       scenarioName: `3-Generation Diversity Preservation Simulation (${plan.speciesName})`,
       speciesId,
       generations: results,
-      overallScore: 94.2,
-      summary: `Projections show a 55% cumulative reduction in population inbreeding F and strong 94.6% gene diversity retention across ${generationsCount} generations.`
+      overallScore: computedScore,
+      summary: `Projections show a ${fDropPct}% reduction in population inbreeding F and ${finalGen.diversityRetentionPercent}% gene diversity retention across ${generationsCount} generations.`
     };
   }
 }

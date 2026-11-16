@@ -80,7 +80,7 @@ export default function Navbar({ health, onHealthRefresh }) {
             </div>
           </NavLink>
 
-          <div style={{ display: 'flex', gap: '0.4rem' }}>
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
             <NavLink to="/" className={({ isActive }) => `btn ${isActive ? 'btn-primary' : 'btn-secondary'}`} end>
               <LayoutDashboard size={15} /> Dashboard
             </NavLink>
@@ -98,6 +98,9 @@ export default function Navbar({ health, onHealthRefresh }) {
             </NavLink>
             <NavLink to="/taxonomy" className={({ isActive }) => `btn ${isActive ? 'btn-primary' : 'btn-secondary'}`}>
               <Building2 size={15} /> Institutions
+            </NavLink>
+            <NavLink to="/database" className={({ isActive }) => `btn ${isActive ? 'btn-primary' : 'btn-secondary'}`}>
+              <Database size={15} /> Database &amp; Dataset
             </NavLink>
             <NavLink to="/tests" className={({ isActive }) => `btn ${isActive ? 'btn-primary' : 'btn-secondary'}`}>
               <CheckSquare size={15} /> Verification
