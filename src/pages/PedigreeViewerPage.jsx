@@ -36,17 +36,18 @@ const SpecimenNode = ({ data }) => {
     : 'rgba(124, 58, 237, 0.12)';
 
   const badgeColor = isMale ? '#0284c7' : isFemale ? '#db2777' : '#7c3aed';
+  const isFounder = Boolean(data.wildFounder || data.founder);
 
   return (
     <div
-      onClick={() => data.onSelect(data.specimenId)}
+      onClick={() => data.onSelect && data.onSelect(data.specimenId)}
       style={{
         background: isTarget ? '#f0f9ff' : '#ffffff',
         border: `2px solid ${borderColor}`,
         borderRadius: '12px',
         padding: '0.85rem 1rem',
-        minWidth: '200px',
-        maxWidth: '240px',
+        minWidth: '220px',
+        maxWidth: '260px',
         boxShadow: isTarget ? '0 0 16px rgba(2, 132, 199, 0.35)' : '0 4px 12px rgba(15, 23, 42, 0.08)',
         cursor: 'pointer',
         transition: 'transform 0.15s ease, box-shadow 0.15s ease'
@@ -69,7 +70,7 @@ const SpecimenNode = ({ data }) => {
       </div>
 
       <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '0.3rem', fontWeight: 600 }}>
-        {data.speciesCommonName || 'Marine Specimen'}
+        {data.speciesCommonName || data.species || 'Marine Specimen'}
       </div>
 
       {data.localIdentifier && (
@@ -79,8 +80,8 @@ const SpecimenNode = ({ data }) => {
       )}
 
       <div style={{ marginTop: '0.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem' }}>
-        <span style={{ color: 'var(--text-muted)' }}>{data.institutionName || 'Institution'}</span>
-        {data.wildFounder ? (
+        <span style={{ color: 'var(--text-muted)' }}>{data.institutionName || data.institution || 'Institution'}</span>
+        {isFounder ? (
           <span style={{ color: '#d97706', fontWeight: 700 }}>★ Founder</span>
         ) : (
           <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Gen {data.generation ?? '?'}</span>
@@ -127,14 +128,27 @@ export default function PedigreeViewerPage() {
   }, [searchParams]);
 
   // Layout calculation for nodes by generation
-  const buildGraphLayout = useCallback((graphData, targetId) => {
-    const rawNodes = graphData.nodes || [];
-    const rawEdges = graphData.edges || [];
+  const buildGraphLayout = useCallback((graphData, targetId, currentMode = 'pedigree') => {
+    // Normalise nodes
+    const rawNodes = (graphData.nodes || graphData.allNodes || []).map(n => ({
+      ...n,
+      id: String(n.id || n.specimenId),
+      specimenId: String(n.specimenId || n.id)
+    }));
+
+    // Normalise edges / relationships
+    const rawEdges = graphData.edges || graphData.relationships || [];
+
+    if (rawNodes.length === 0) {
+      return { flowNodes: [], flowEdges: [] };
+    }
 
     // Group nodes by generation level
     const genGroups = {};
+    let maxGen = 0;
     rawNodes.forEach(node => {
-      const gen = node.generation !== undefined ? node.generation : 0;
+      const gen = typeof node.generation === 'number' ? node.generation : 0;
+      if (gen > maxGen) maxGen = gen;
       if (!genGroups[gen]) genGroups[gen] = [];
       genGroups[gen].push(node);
     });
@@ -143,7 +157,7 @@ export default function PedigreeViewerPage() {
     const flowEdges = [];
 
     const HORIZONTAL_SPACING = 270;
-    const VERTICAL_SPACING = 150;
+    const VERTICAL_SPACING = 160;
 
     Object.keys(genGroups).forEach(genKey => {
       const gen = parseInt(genKey, 10);
@@ -151,20 +165,23 @@ export default function PedigreeViewerPage() {
       const totalWidth = (group.length - 1) * HORIZONTAL_SPACING;
       const startX = -totalWidth / 2;
 
-      // Gen 0 is founders at the top, or target at the bottom depending on orientation.
-      // In studbooks, Ancestors / Founders are placed top (Y=0, 150, 300...) and target at the bottom
+      // In ancestors mode, target is at 0 and oldest ancestors have highest gen,
+      // so we invert it with (maxGen - gen) to place ancestors at the top.
+      // In pedigree and descendants modes, generation 0 is already the top-most tier.
+      const yLevel = (currentMode === 'ancestors') ? (maxGen - gen) : gen;
+
       group.forEach((node, index) => {
-        const isTarget = node.id === targetId;
+        const isTarget = node.id === targetId || node.specimenId === targetId;
         flowNodes.push({
-          id: node.id,
+          id: String(node.id),
           type: 'specimenNode',
           position: {
             x: startX + index * HORIZONTAL_SPACING,
-            y: gen * VERTICAL_SPACING
+            y: yLevel * VERTICAL_SPACING
           },
           data: {
             ...node,
-            specimenId: node.id,
+            specimenId: node.specimenId || node.id,
             isTarget,
             onSelect: (id) => setDetailSpecimenId(id)
           }
@@ -176,8 +193,8 @@ export default function PedigreeViewerPage() {
       const isSire = edge.role === 'SIRE';
       flowEdges.push({
         id: `e-${edge.source}-${edge.target}-${index}`,
-        source: edge.source,
-        target: edge.target,
+        source: String(edge.source),
+        target: String(edge.target),
         type: 'smoothstep',
         animated: true,
         label: edge.role ? `${edge.role} (${Math.round((edge.confidence || 1.0) * 100)}%)` : undefined,
@@ -209,19 +226,17 @@ export default function PedigreeViewerPage() {
     try {
       if (viewMode === 'pedigree') {
         const res = await pedigreeAPI.getPedigree(selectedSpecimenId, generations);
-        const { flowNodes, flowEdges } = buildGraphLayout(res.data, selectedSpecimenId);
+        const { flowNodes, flowEdges } = buildGraphLayout(res.data, selectedSpecimenId, 'pedigree');
         setNodes(flowNodes);
         setEdges(flowEdges);
       } else if (viewMode === 'ancestors') {
         const res = await pedigreeAPI.getAncestors(selectedSpecimenId);
-        const ancNodes = [{ id: selectedSpecimenId, generation: 0 }, ...res.data.ancestors.map((a, i) => ({ ...a, id: a.specimenId, generation: -(i + 1) }))];
-        const { flowNodes, flowEdges } = buildGraphLayout({ nodes: ancNodes, edges: [] }, selectedSpecimenId);
+        const { flowNodes, flowEdges } = buildGraphLayout(res.data, selectedSpecimenId, 'ancestors');
         setNodes(flowNodes);
         setEdges(flowEdges);
       } else if (viewMode === 'descendants') {
         const res = await pedigreeAPI.getDescendants(selectedSpecimenId);
-        const descNodes = [{ id: selectedSpecimenId, generation: 0 }, ...res.data.descendants.map((d, i) => ({ ...d, id: d.specimenId, generation: i + 1 }))];
-        const { flowNodes, flowEdges } = buildGraphLayout({ nodes: descNodes, edges: [] }, selectedSpecimenId);
+        const { flowNodes, flowEdges } = buildGraphLayout(res.data, selectedSpecimenId, 'descendants');
         setNodes(flowNodes);
         setEdges(flowEdges);
       }
@@ -327,8 +342,43 @@ export default function PedigreeViewerPage() {
         </div>
       </div>
 
+      {/* Mode Information & Stats Ribbon */}
+      <div style={{
+        background: '#f1f5f9',
+        borderBottom: '1px solid var(--border-color)',
+        padding: '0.4rem 1.75rem',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        fontSize: '0.76rem',
+        color: 'var(--text-muted)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span style={{
+            background: viewMode === 'pedigree' ? '#0284c7' : viewMode === 'ancestors' ? '#7c3aed' : '#059669',
+            color: '#ffffff',
+            padding: '0.1rem 0.45rem',
+            borderRadius: '4px',
+            fontWeight: 800,
+            fontSize: '0.68rem',
+            letterSpacing: '0.04em'
+          }}>
+            {viewMode === 'pedigree' ? 'MULTI-GEN PEDIGREE' : viewMode === 'ancestors' ? 'ANCESTORS ONLY' : 'DESCENDANTS ONLY'}
+          </span>
+          <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+            {viewMode === 'pedigree' && `Complete Lineage Network • Showing both direct ancestors and descendants for ${selectedSpecimenId}`}
+            {viewMode === 'ancestors' && `Ascending Lineage Tree • Tracing parents, grandparents, and wild founders for ${selectedSpecimenId}`}
+            {viewMode === 'descendants' && `Descending Progeny Tree • Tracing offspring and successive downstream generations for ${selectedSpecimenId}`}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', fontWeight: 600 }}>
+          <span><b>{nodes.length}</b> Specimens</span>
+          <span><b>{edges.length}</b> Kinship Edges</span>
+        </div>
+      </div>
+
       {/* Graph Canvas */}
-      <div style={{ flex: 1, position: 'relative', background: '#f8fafc' }}>
+      <div style={{ flex: 1, position: 'relative', width: '100%', height: '100%', minHeight: '500px', background: '#f8fafc' }}>
         {error && (
           <div style={{ position: 'absolute', top: '1.5rem', left: '50%', transform: 'translateX(-50%)', zIndex: 100 }}>
             <div className="alert alert-error" style={{ boxShadow: '0 4px 14px rgba(0,0,0,0.1)' }}>
@@ -341,6 +391,28 @@ export default function PedigreeViewerPage() {
           <div style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', zIndex: 100, background: '#ffffff', padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--text-main)', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }}>
             <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />
             Traversing Neo4j Graph...
+          </div>
+        )}
+
+        {!loading && nodes.length === 0 && !error && (
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            textAlign: 'center',
+            background: '#ffffff',
+            padding: '2rem 2.5rem',
+            borderRadius: '12px',
+            border: '1px solid var(--border-color)',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.06)',
+            zIndex: 10
+          }}>
+            <GitFork size={40} style={{ color: 'var(--primary)', opacity: 0.8, margin: '0 auto 0.75rem' }} />
+            <h4 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '0.35rem' }}>No Lineage Records Found</h4>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+              No ancestors or descendants recorded for {selectedSpecimenId}. This specimen may be a wild founder.
+            </p>
           </div>
         )}
 
@@ -380,12 +452,17 @@ export default function PedigreeViewerPage() {
         </div>
 
         <ReactFlow
+          key={`${selectedSpecimenId}-${generations}-${viewMode}-${nodes.length}`}
+          style={{ width: '100%', height: '100%' }}
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           nodeTypes={nodeTypes}
           fitView
+          fitViewOptions={{ padding: 0.2 }}
+          minZoom={0.2}
+          maxZoom={1.5}
           attributionPosition="bottom-right"
         >
           <Background color="#cbd5e1" gap={20} size={1} />

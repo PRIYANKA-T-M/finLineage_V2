@@ -1088,80 +1088,110 @@ async function startServer() {
     res.json(parents);
   });
 
-  // Pedigree Traversal API with Configurable Depth & Controlled Recursion
-  app.get('/api/specimens/:id/pedigree', (req: Request, res: Response) => {
-    const specimenId = req.params.id.toUpperCase();
-    const generations = Math.min(Math.max(parseInt(req.query.generations as string) || 4, 1), 10);
-
+  // Helper: Build Full Multi-Generational Pedigree (Ancestors + Descendants)
+  const getFullPedigreeData = (specimenId: string, maxDepth: number = 4) => {
     const target = specimens.find(s => s.specimenId === specimenId);
-    if (!target) {
-      return res.status(404).json(createErrorResponse(404, 'Not Found', `Specimen not found with ID: ${specimenId}`, req.originalUrl));
-    }
+    if (!target) return null;
 
-    const generationMap: Record<number, any[]> = {};
-    const processedNodeIds = new Set<string>();
-    const relationships: Array<{ source: string; target: string; role: string; confidence: number; source_type: string }> = [];
-    const allNodes: any[] = [];
+    // Relative generation tracker: Target is 0, parents are -1, grandparents -2; children are +1, grandchildren +2
+    const visited = new Map<string, number>(); // specimenId -> relGen
+    visited.set(target.specimenId, 0);
 
-    const queue: Array<{ specimen: Specimen; generation: number }> = [{ specimen: target, generation: 0 }];
+    const relEdgesMap = new Map<string, { source: string; target: string; role: string; confidence: number; source_type: string }>();
 
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      const s = current.specimen;
-      const currentGen = current.generation;
-
-      if (currentGen > generations) continue;
-
-      if (!processedNodeIds.has(s.specimenId)) {
-        processedNodeIds.add(s.specimenId);
-
-        const parentRels = specimenParents.filter(p => p.specimenId === s.specimenId);
-        const sireIds = parentRels.filter(p => p.parentRole === 'SIRE').map(p => p.parentId);
-        const damIds = parentRels.filter(p => p.parentRole === 'DAM').map(p => p.parentId);
-
-        const inst = institutions.find(i => i.institutionId === s.institutionId);
-        const spec = speciesList.find(sp => sp.speciesId === s.speciesId);
-
-        const nodeDTO = {
-          specimenId: s.specimenId,
-          species: spec?.commonName || 'Unknown',
-          scientificName: spec?.scientificName || 'Unknown',
-          sex: s.sex,
-          founder: s.wildFounder,
-          activeBreeder: s.activeBreeder,
-          status: s.status,
-          birthDate: s.birthDate,
-          institution: inst?.name || 'Unknown',
-          generation: currentGen,
-          sireIds,
-          damIds
-        };
-
-        allNodes.push(nodeDTO);
-        if (!generationMap[currentGen]) {
-          generationMap[currentGen] = [];
-        }
-        generationMap[currentGen].push(nodeDTO);
-
-        if (currentGen < generations) {
-          for (const parentRel of parentRels) {
-            const p = specimens.find(x => x.specimenId === parentRel.parentId);
-            if (p) {
-              relationships.push({
-                source: p.specimenId,
-                target: s.specimenId,
-                role: parentRel.parentRole,
-                confidence: parentRel.confidence,
-                source_type: parentRel.source
-              });
-
-              if (!processedNodeIds.has(p.specimenId)) {
-                queue.push({ specimen: p, generation: currentGen + 1 });
-              }
-            }
+    // 1. Upward ancestor traversal
+    const ancQueue: Array<{ id: string; relGen: number }> = [{ id: target.specimenId, relGen: 0 }];
+    while (ancQueue.length > 0) {
+      const { id, relGen } = ancQueue.shift()!;
+      if (Math.abs(relGen) < maxDepth) {
+        const parents = specimenParents.filter(p => p.specimenId === id);
+        for (const p of parents) {
+          const edgeKey = `${p.parentId}->${id}->${p.parentRole}`;
+          if (!relEdgesMap.has(edgeKey)) {
+            relEdgesMap.set(edgeKey, {
+              source: p.parentId,
+              target: id,
+              role: p.parentRole,
+              confidence: p.confidence,
+              source_type: p.source
+            });
+          }
+          if (!visited.has(p.parentId)) {
+            visited.set(p.parentId, relGen - 1);
+            ancQueue.push({ id: p.parentId, relGen: relGen - 1 });
           }
         }
       }
+    }
+
+    // 2. Downward descendant traversal
+    const descQueue: Array<{ id: string; relGen: number }> = [{ id: target.specimenId, relGen: 0 }];
+    while (descQueue.length > 0) {
+      const { id, relGen } = descQueue.shift()!;
+      if (relGen < maxDepth) {
+        const children = specimenParents.filter(p => p.parentId === id);
+        for (const c of children) {
+          const edgeKey = `${id}->${c.specimenId}->${c.parentRole}`;
+          if (!relEdgesMap.has(edgeKey)) {
+            relEdgesMap.set(edgeKey, {
+              source: id,
+              target: c.specimenId,
+              role: c.parentRole,
+              confidence: c.confidence,
+              source_type: c.source
+            });
+          }
+          if (!visited.has(c.specimenId)) {
+            visited.set(c.specimenId, relGen + 1);
+            descQueue.push({ id: c.specimenId, relGen: relGen + 1 });
+          }
+        }
+      }
+    }
+
+    // Find minRelGen so the oldest tier starts at generation 0
+    let minRelGen = 0;
+    for (const rel of visited.values()) {
+      if (rel < minRelGen) minRelGen = rel;
+    }
+
+    const allNodes: any[] = [];
+    const generationMap: Record<number, any[]> = {};
+
+    for (const [sId, relGen] of visited.entries()) {
+      const s = specimens.find(x => x.specimenId === sId);
+      if (!s) continue;
+
+      const normGen = relGen - minRelGen;
+      const parentRels = specimenParents.filter(p => p.specimenId === s.specimenId);
+      const sireIds = parentRels.filter(p => p.parentRole === 'SIRE').map(p => p.parentId);
+      const damIds = parentRels.filter(p => p.parentRole === 'DAM').map(p => p.parentId);
+      const inst = institutions.find(i => i.institutionId === s.institutionId);
+      const spec = speciesList.find(sp => sp.speciesId === s.speciesId);
+
+      const nodeDTO = {
+        specimenId: s.specimenId,
+        id: s.specimenId,
+        species: spec?.commonName || 'Unknown',
+        speciesCommonName: spec?.commonName || 'Unknown',
+        scientificName: spec?.scientificName || 'Unknown',
+        sex: s.sex,
+        founder: s.wildFounder,
+        wildFounder: s.wildFounder,
+        activeBreeder: s.activeBreeder,
+        status: s.status,
+        birthDate: s.birthDate,
+        institution: inst?.name || 'Unknown',
+        institutionName: inst?.name || 'Unknown',
+        generation: normGen,
+        relativeGeneration: relGen,
+        sireIds,
+        damIds
+      };
+
+      allNodes.push(nodeDTO);
+      if (!generationMap[normGen]) generationMap[normGen] = [];
+      generationMap[normGen].push(nodeDTO);
     }
 
     const generationDTOList = Object.entries(generationMap).map(([gen, nodes]) => ({
@@ -1169,15 +1199,47 @@ async function startServer() {
       specimens: nodes
     }));
 
-    res.json({
+    const relationships = Array.from(relEdgesMap.values());
+    const formattedEdges = relationships.map((r, i) => ({
+      ...r,
+      id: `rel-${r.source}-${r.target}-${i}`
+    }));
+
+    return {
       targetSpecimenId: specimenId,
       species: speciesList.find(sp => sp.speciesId === target.speciesId)?.commonName || 'Unknown',
-      requestedGenerations: generations,
+      requestedGenerations: maxDepth,
       totalGenerations: generationDTOList.length,
       generations: generationDTOList,
       relationships,
-      allNodes
-    });
+      allNodes,
+      nodes: allNodes,
+      edges: formattedEdges,
+      ancestorsCount: Array.from(visited.values()).filter(r => r < 0).length,
+      descendantsCount: Array.from(visited.values()).filter(r => r > 0).length
+    };
+  };
+
+  // Pedigree Traversal API with Configurable Depth & Bi-directional Recursion (Ancestors + Descendants)
+  app.get('/api/specimens/:id/pedigree', (req: Request, res: Response) => {
+    const specimenId = req.params.id.toUpperCase();
+    const generations = Math.min(Math.max(parseInt(req.query.generations as string) || 4, 1), 10);
+    const data = getFullPedigreeData(specimenId, generations);
+    if (!data) {
+      return res.status(404).json(createErrorResponse(404, 'Not Found', `Specimen not found with ID: ${specimenId}`, req.originalUrl));
+    }
+    res.json(data);
+  });
+
+  // Alias for /api/pedigree/:id
+  app.get('/api/pedigree/:id', (req: Request, res: Response) => {
+    const specimenId = req.params.id.toUpperCase();
+    const generations = Math.min(Math.max(parseInt(req.query.generations as string) || 4, 1), 10);
+    const data = getFullPedigreeData(specimenId, generations);
+    if (!data) {
+      return res.status(404).json(createErrorResponse(404, 'Not Found', `Specimen not found with ID: ${specimenId}`, req.originalUrl));
+    }
+    res.json(data);
   });
 
   // Ancestors Traversal
@@ -1190,28 +1252,61 @@ async function startServer() {
 
     const visited = new Set<string>();
     const ancestors: any[] = [];
-    const queue = [specimenId];
+    const queue: Array<{ id: string; gen: number }> = [{ id: specimenId, gen: 0 }];
+    const relationships: Array<{ source: string; target: string; role: string; confidence: number; source_type: string }> = [];
+
+    const targetInst = institutions.find(i => i.institutionId === target.institutionId);
+    const targetSpec = speciesList.find(sp => sp.speciesId === target.speciesId);
+    const allNodes: any[] = [{
+      specimenId: target.specimenId,
+      id: target.specimenId,
+      species: targetSpec?.commonName || 'Unknown',
+      speciesCommonName: targetSpec?.commonName || 'Unknown',
+      sex: target.sex,
+      founder: target.wildFounder,
+      wildFounder: target.wildFounder,
+      birthDate: target.birthDate,
+      institution: targetInst?.name || 'Unknown',
+      institutionName: targetInst?.name || 'Unknown',
+      generation: 0
+    }];
 
     while (queue.length > 0) {
-      const currentId = queue.shift()!;
+      const current = queue.shift()!;
+      const currentId = current.id;
       const parents = specimenParents.filter(p => p.specimenId === currentId);
       for (const p of parents) {
+        relationships.push({
+          source: p.parentId,
+          target: currentId,
+          role: p.parentRole,
+          confidence: p.confidence,
+          source_type: p.source
+        });
+
         if (!visited.has(p.parentId)) {
           visited.add(p.parentId);
           const parentObj = specimens.find(s => s.specimenId === p.parentId);
           if (parentObj) {
             const inst = institutions.find(i => i.institutionId === parentObj.institutionId);
             const spec = speciesList.find(sp => sp.speciesId === parentObj.speciesId);
-            ancestors.push({
+            const ancDTO = {
               specimenId: parentObj.specimenId,
+              id: parentObj.specimenId,
               species: spec?.commonName || 'Unknown',
+              speciesCommonName: spec?.commonName || 'Unknown',
               sex: parentObj.sex,
               founder: parentObj.wildFounder,
+              wildFounder: parentObj.wildFounder,
               birthDate: parentObj.birthDate,
               institution: inst?.name || 'Unknown',
-              relationship: p.parentRole
-            });
-            queue.push(parentObj.specimenId);
+              institutionName: inst?.name || 'Unknown',
+              relationship: p.parentRole,
+              generation: current.gen + 1
+            };
+            ancestors.push(ancDTO);
+            allNodes.push(ancDTO);
+            queue.push({ id: parentObj.specimenId, gen: current.gen + 1 });
           }
         }
       }
@@ -1220,7 +1315,11 @@ async function startServer() {
     res.json({
       specimenId,
       ancestorsCount: ancestors.length,
-      ancestors
+      ancestors,
+      allNodes,
+      nodes: allNodes,
+      relationships,
+      edges: relationships.map((r, i) => ({ ...r, id: `rel-${r.source}-${r.target}-${i}` }))
     });
   });
 
@@ -1234,28 +1333,61 @@ async function startServer() {
 
     const visited = new Set<string>();
     const descendants: any[] = [];
-    const queue = [specimenId];
+    const queue: Array<{ id: string; gen: number }> = [{ id: specimenId, gen: 0 }];
+    const relationships: Array<{ source: string; target: string; role: string; confidence: number; source_type: string }> = [];
+
+    const targetInst = institutions.find(i => i.institutionId === target.institutionId);
+    const targetSpec = speciesList.find(sp => sp.speciesId === target.speciesId);
+    const allNodes: any[] = [{
+      specimenId: target.specimenId,
+      id: target.specimenId,
+      species: targetSpec?.commonName || 'Unknown',
+      speciesCommonName: targetSpec?.commonName || 'Unknown',
+      sex: target.sex,
+      founder: target.wildFounder,
+      wildFounder: target.wildFounder,
+      birthDate: target.birthDate,
+      institution: targetInst?.name || 'Unknown',
+      institutionName: targetInst?.name || 'Unknown',
+      generation: 0
+    }];
 
     while (queue.length > 0) {
-      const currentId = queue.shift()!;
+      const current = queue.shift()!;
+      const currentId = current.id;
       const children = specimenParents.filter(p => p.parentId === currentId);
       for (const c of children) {
+        relationships.push({
+          source: currentId,
+          target: c.specimenId,
+          role: c.parentRole,
+          confidence: c.confidence,
+          source_type: c.source
+        });
+
         if (!visited.has(c.specimenId)) {
           visited.add(c.specimenId);
           const childObj = specimens.find(s => s.specimenId === c.specimenId);
           if (childObj) {
             const inst = institutions.find(i => i.institutionId === childObj.institutionId);
             const spec = speciesList.find(sp => sp.speciesId === childObj.speciesId);
-            descendants.push({
+            const descDTO = {
               specimenId: childObj.specimenId,
+              id: childObj.specimenId,
               species: spec?.commonName || 'Unknown',
+              speciesCommonName: spec?.commonName || 'Unknown',
               sex: childObj.sex,
               founder: childObj.wildFounder,
+              wildFounder: childObj.wildFounder,
               birthDate: childObj.birthDate,
               institution: inst?.name || 'Unknown',
-              parentRole: c.parentRole
-            });
-            queue.push(childObj.specimenId);
+              institutionName: inst?.name || 'Unknown',
+              parentRole: c.parentRole,
+              generation: current.gen + 1
+            };
+            descendants.push(descDTO);
+            allNodes.push(descDTO);
+            queue.push({ id: childObj.specimenId, gen: current.gen + 1 });
           }
         }
       }
@@ -1264,7 +1396,11 @@ async function startServer() {
     res.json({
       specimenId,
       descendantsCount: descendants.length,
-      descendants
+      descendants,
+      allNodes,
+      nodes: allNodes,
+      relationships,
+      edges: relationships.map((r, i) => ({ ...r, id: `rel-${r.source}-${r.target}-${i}` }))
     });
   });
 

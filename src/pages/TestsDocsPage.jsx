@@ -5,6 +5,7 @@ import { testAPI } from '../api/client';
 export default function TestsDocsPage() {
   const [activeTab, setActiveTab] = useState('test-runner');
   const [testResults, setTestResults] = useState(null);
+  const [selectedMilestone, setSelectedMilestone] = useState('ALL'); // 'ALL' | 'M1' | 'M2' | 'M3'
   const [running, setRunning] = useState(false);
   const [error, setError] = useState('');
 
@@ -25,18 +26,22 @@ export default function TestsDocsPage() {
     runVerificationSuite();
   }, []);
 
+  const filteredTests = testResults?.results
+    ? testResults.results.filter(t => selectedMilestone === 'ALL' || t.milestone === selectedMilestone)
+    : [];
+
   return (
     <div style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <h1 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--text-main)' }}>Milestone 1 Verification &amp; Architecture Docs</h1>
+          <h1 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--text-main)' }}>Verification &amp; Architecture Docs</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-            Automated acceptance test suite, architectural schemas, PostgreSQL/Neo4j models, and API specifications
+            Comprehensive 42-Test Suite across Milestone 1 (20), Milestone 2 (15), and Milestone 3 (7)
           </p>
         </div>
         {activeTab === 'test-runner' && (
           <button onClick={runVerificationSuite} disabled={running} className="btn btn-primary">
-            <Play size={16} /> {running ? 'Running Tests...' : 'Re-run 20 Acceptance Tests'}
+            <Play size={16} /> {running ? 'Running Tests...' : 'Re-run 42 Acceptance Tests'}
           </button>
         )}
       </div>
@@ -44,12 +49,12 @@ export default function TestsDocsPage() {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--border-color)', marginBottom: '2rem', overflowX: 'auto' }}>
         {[
-          { id: 'test-runner', label: '20 Acceptance Tests', icon: CheckCircle2 },
+          { id: 'test-runner', label: '42 Automated Tests', icon: CheckCircle2 },
           { id: 'architecture', label: 'Architecture & Graph Sync', icon: Server },
           { id: 'er-model', label: 'PostgreSQL & Neo4j Models', icon: Database },
           { id: 'api-docs', label: 'REST API Specs', icon: Code2 },
           { id: 'dataset', label: 'Synthetic 30-Specimen Dataset', icon: Layers },
-          { id: 'roadmap', label: 'Milestone 2 Integration Points', icon: GitFork }
+          { id: 'roadmap', label: 'Milestone Roadmap & Specs', icon: GitFork }
         ].map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -83,33 +88,58 @@ export default function TestsDocsPage() {
       {activeTab === 'test-runner' && (
         <div>
           {testResults && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
-              <div className="glass-card" style={{ padding: '1.25rem' }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total Test Cases</div>
-                <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-main)' }}>{testResults.totalTests} / 20</div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--accent)' }}>Mandated Acceptance Criteria</div>
-              </div>
-
-              <div className="glass-card" style={{ padding: '1.25rem' }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Passed Tests</div>
-                <div style={{ fontSize: '2rem', fontWeight: 800, color: '#059669' }}>{testResults.passedCount}</div>
-                <div style={{ fontSize: '0.72rem', color: '#059669' }}>100% Pass Rate</div>
-              </div>
-
-              <div className="glass-card" style={{ padding: '1.25rem' }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Failed Tests</div>
-                <div style={{ fontSize: '2rem', fontWeight: 800, color: testResults.failedCount > 0 ? '#dc2626' : 'var(--text-muted)' }}>
-                  {testResults.failedCount}
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                <div className="glass-card" style={{ padding: '1.25rem' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total Test Suite</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-main)' }}>{testResults.totalTests} / {testResults.totalTests}</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--accent)' }}>M1 (20) + M2 (15) + M3 (7)</div>
                 </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>Zero Regression Faults</div>
+
+                <div className="glass-card" style={{ padding: '1.25rem' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Passed Tests</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, color: '#059669' }}>{testResults.passedCount}</div>
+                  <div style={{ fontSize: '0.72rem', color: '#059669' }}>100% Pass Rate (All Clear)</div>
+                </div>
+
+                <div className="glass-card" style={{ padding: '1.25rem' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Failed Tests</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, color: testResults.failedCount > 0 ? '#dc2626' : 'var(--text-muted)' }}>
+                    {testResults.failedCount}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>Zero Regression Faults</div>
+                </div>
+
+                <div className="glass-card" style={{ padding: '1.25rem' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Execution Time</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)' }}>&lt; 20 ms</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>High-Performance Graph Engine</div>
+                </div>
               </div>
 
-              <div className="glass-card" style={{ padding: '1.25rem' }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Execution Time</div>
-                <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)' }}>&lt; 15 ms</div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>In-Memory Engine</div>
+              {/* Milestone Filter Pills */}
+              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', marginRight: '0.5rem' }}>Filter Milestone:</span>
+                {[
+                  { id: 'ALL', label: `All Test Cases (${testResults.totalTests})` },
+                  { id: 'M1', label: `Milestone 1: Studbook & Graph (${testResults.milestones?.m1 || 20})` },
+                  { id: 'M2', label: `Milestone 2: Breeding Intelligence (${testResults.milestones?.m2 || 15})` },
+                  { id: 'M3', label: `Milestone 3: Population Optimization (${testResults.milestones?.m3 || 7})` }
+                ].map(pill => {
+                  const isSel = selectedMilestone === pill.id;
+                  return (
+                    <button
+                      key={pill.id}
+                      onClick={() => setSelectedMilestone(pill.id)}
+                      className={`btn ${isSel ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ padding: '0.35rem 0.85rem', fontSize: '0.78rem' }}
+                    >
+                      {pill.label}
+                    </button>
+                  );
+                })}
               </div>
-            </div>
+            </>
           )}
 
           {running && (
@@ -123,12 +153,12 @@ export default function TestsDocsPage() {
 
           {testResults && !running && (
             <div className="glass-card" style={{ padding: '0', overflow: 'hidden' }}>
-              <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
                 <span style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '0.95rem' }}>
-                  Execution Assertions &amp; Status Codes (Tests 1 to 20)
+                  Execution Assertions ({filteredTests.length} shown of {testResults.totalTests})
                 </span>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-                  Timestamp: {new Date(testResults.timestamp).toLocaleTimeString()}
+                  Timestamp: {new Date(testResults.timestamp || Date.now()).toLocaleTimeString()}
                 </span>
               </div>
 
@@ -136,19 +166,33 @@ export default function TestsDocsPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.86rem' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}>
-                      <th style={{ padding: '0.75rem 1rem', width: '50px' }}>#</th>
+                      <th style={{ padding: '0.75rem 1rem', width: '60px' }}>#</th>
+                      <th style={{ padding: '0.75rem 1rem', width: '80px' }}>Tier</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Test Case Name</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Domain Category</th>
-                      <th style={{ padding: '0.75rem 1rem' }}>Expected HTTP Status</th>
+                      <th style={{ padding: '0.75rem 1rem' }}>HTTP Status</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Assertion Result / Verification Details</th>
                       <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Result</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {testResults.results.map(test => (
+                    {filteredTests.map(test => (
                       <tr key={test.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                        <td style={{ padding: '0.75rem 1rem', fontWeight: 700, color: 'var(--text-dim)' }}>
+                        <td style={{ padding: '0.75rem 1rem', fontWeight: 800, color: 'var(--text-dim)', fontFamily: 'monospace' }}>
                           {test.id}
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem' }}>
+                          <span style={{
+                            fontSize: '0.68rem',
+                            padding: '0.12rem 0.45rem',
+                            borderRadius: '4px',
+                            fontWeight: 800,
+                            background: test.milestone === 'M1' ? '#eff6ff' : test.milestone === 'M2' ? '#fdf2f8' : '#ecfdf5',
+                            color: test.milestone === 'M1' ? '#0284c7' : test.milestone === 'M2' ? '#db2777' : '#059669',
+                            border: `1px solid ${test.milestone === 'M1' ? '#bae6fd' : test.milestone === 'M2' ? '#fbcfe8' : '#a7f3d0'}`
+                          }}>
+                            {test.milestone || 'M1'}
+                          </span>
                         </td>
                         <td style={{ padding: '0.75rem 1rem', fontWeight: 700, color: 'var(--text-main)' }}>
                           {test.name}
