@@ -11,15 +11,13 @@ import {
   AlertTriangle,
   RefreshCw,
   Plus,
-  Play,
   CheckCircle2,
-  Database,
   Layers,
   ArrowRight,
   TrendingUp,
   UserCheck
 } from 'lucide-react';
-import { dashboardAPI, breedingAPI, auditAPI, testAPI } from '../api/client';
+import { dashboardAPI, breedingAPI, auditAPI } from '../api/client';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -88,9 +86,6 @@ export default function DashboardPage() {
         </div>
 
         <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button onClick={() => navigate('/tests')} className="btn btn-secondary">
-            <Play size={16} color="#059669" /> Run Test Suite (20/20)
-          </button>
           <button onClick={() => navigate('/specimens/new')} className="btn btn-primary">
             <Plus size={16} /> Register Specimen
           </button>
@@ -165,47 +160,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Architecture Health & Dual Store Projection */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
-        <div className="glass-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Database size={18} color="var(--primary)" />
-              <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>
-                Dual-Store Persistence Health
-              </h3>
-            </div>
-            <span className="badge badge-synced" style={{ fontSize: '0.7rem' }}>ALL SYSTEMS HEALTHY</span>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-              <div>
-                <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.85rem' }}>PostgreSQL Database (Source of Truth)</div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Demographics, Institutions, Species, Foreign Keys</div>
-              </div>
-              <span style={{ color: '#16a34a', fontWeight: 700, fontSize: '0.78rem' }}>CONNECTED</span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-              <div>
-                <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.85rem' }}>Neo4j Graph Database (Projection)</div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Pedigree traversal, cycle prevention, (:Specimen)-[:PARENT_OF]-&gt;</div>
-              </div>
-              <span style={{ color: '#16a34a', fontWeight: 700, fontSize: '0.78rem' }}>PROJECTED (100%)</span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-              <div>
-                <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.85rem' }}>Automated Acceptance Suite</div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Tests 1–20 covering validation, cycles, and traversal</div>
-              </div>
-              <span style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '0.78rem' }}>20 / 20 PASSED</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Species Breakdown */}
+      {/* Species Breakdown */}
+      <div style={{ marginBottom: '2rem' }}>
         <div className="glass-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>

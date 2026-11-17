@@ -99,12 +99,6 @@ export default function Navbar({ health, onHealthRefresh }) {
             <NavLink to="/taxonomy" className={({ isActive }) => `btn ${isActive ? 'btn-primary' : 'btn-secondary'}`}>
               <Building2 size={15} /> Institutions
             </NavLink>
-            <NavLink to="/database" className={({ isActive }) => `btn ${isActive ? 'btn-primary' : 'btn-secondary'}`}>
-              <Database size={15} /> Database &amp; Dataset
-            </NavLink>
-            <NavLink to="/tests" className={({ isActive }) => `btn ${isActive ? 'btn-primary' : 'btn-secondary'}`}>
-              <CheckSquare size={15} /> Verification
-            </NavLink>
           </div>
         </div>
 
